@@ -17,8 +17,10 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.coroutineslibraryapp.actitvity.MainActivity
 import com.example.coroutineslibraryapp.activity.recycler.adapters.vh.HeaderViewHolder
 import com.example.coroutineslibraryapp.activity.recycler.adapters.LibraryAdapter
+import com.example.coroutineslibraryapp.activity.recycler.adapters.State
 import com.example.coroutineslibraryapp.databinding.FragmentLibraryBinding
 import com.facebook.shimmer.ShimmerFrameLayout
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class LibraryFragment : Fragment() {
@@ -31,7 +33,6 @@ class LibraryFragment : Fragment() {
     private var itemClickListener: LibraryAdapter.OnItemClickListener? = null
 
     private var shimmerContainer: ShimmerFrameLayout? = null
-    private var isShimmering: Boolean = false
 
     fun setOnItemClickListener(listener: LibraryAdapter.OnItemClickListener) {
         this.itemClickListener = listener
@@ -62,29 +63,6 @@ class LibraryFragment : Fragment() {
         binding.createButton.setOnClickListener {
             showCreateDialog()
         }
-
-        viewModel.scrollToPosition.observe(viewLifecycleOwner) { position ->
-            binding.recyclerView.post {
-                if (position != null) {
-                    binding.recyclerView.smoothScrollToPosition(position)
-                }
-            }
-        }
-
-        if (savedInstanceState != null) {
-            isShimmering = savedInstanceState.getBoolean(SHIMMER_STATE, false)
-            if (isShimmering) {
-                showShimmer()
-            } else {
-                hideShimmer()
-            }
-        }
-
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        outState.putBoolean(SHIMMER_STATE, isShimmering)
     }
 
     private fun setupRecyclerView() {
@@ -98,20 +76,15 @@ class LibraryFragment : Fragment() {
 
     private fun setupObservers() {
         viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.items.collect { items ->
-                    adapter.updateList(items)
-                }
-            }
-        }
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.isLoading.collect { isLoading ->
-                    if (isLoading) {
-                        showShimmer()
-                    } else {
-                        hideShimmer()
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.state.collect { state ->
+                    when (state) {
+                        State.Loading -> showShimmer()
+                        is State.Error -> showError(state.message)
+                        is State.Content -> {
+                            hideShimmer()
+                            adapter.updateList(state.items)
+                        }
                     }
                 }
             }
@@ -119,8 +92,10 @@ class LibraryFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.error.collect { error ->
-                    error?.let { showError(it) }
+                viewModel.scrollToPosition.collect { position ->
+                    binding.recyclerView.post {
+                        position?.let { binding.recyclerView.smoothScrollToPosition(it) }
+                    }
                 }
             }
         }
@@ -131,16 +106,17 @@ class LibraryFragment : Fragment() {
             shimmerContainer?.visibility = View.VISIBLE
             recyclerView.visibility = View.GONE
             shimmerContainer?.startShimmer()
-            isShimmering = true
         }
     }
 
     private fun hideShimmer() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            delay(1000)
+        }
         with(binding) {
             shimmerContainer?.stopShimmer()
             shimmerContainer?.visibility = View.GONE
             recyclerView.visibility = View.VISIBLE
-            isShimmering = false
         }
     }
 
@@ -180,8 +156,7 @@ class LibraryFragment : Fragment() {
                 recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder
             ): Int {
                 return if (viewHolder is HeaderViewHolder) 0 else super.getSwipeDirs(
-                    recyclerView,
-                    viewHolder
+                    recyclerView, viewHolder
                 )
             }
         }
@@ -198,6 +173,5 @@ class LibraryFragment : Fragment() {
         const val BOOK = "BOOK"
         const val NEWSPAPER = "NEWSPAPER"
         const val DISK = "DISK"
-        const val SHIMMER_STATE = "SHIMMER_STATE"
     }
 }

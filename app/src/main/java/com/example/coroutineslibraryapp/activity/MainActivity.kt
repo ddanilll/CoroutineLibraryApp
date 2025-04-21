@@ -11,8 +11,6 @@ import androidx.fragment.app.commit
 import com.example.coroutineslibraryapp.R
 import com.example.coroutineslibraryapp.actitvity.recycler.InfoFragment
 import com.example.coroutineslibraryapp.actitvity.recycler.InfoFragment.Companion.BOOK
-import com.example.coroutineslibraryapp.actitvity.recycler.InfoFragment.Companion.DISK
-import com.example.coroutineslibraryapp.actitvity.recycler.InfoFragment.Companion.NEWSPAPER
 import com.example.coroutineslibraryapp.activity.recycler.Item
 import com.example.coroutineslibraryapp.activity.recycler.LibraryFragment
 import com.example.coroutineslibraryapp.activity.recycler.MainViewModel
@@ -89,13 +87,11 @@ class MainActivity : AppCompatActivity(), InfoFragment.OnItemCreatedListener,
             } else {
                 if (isDetailsShown && selectedItem != null) {
                     replace(
-                        R.id.list_container,
-                        InfoFragment.newViewInstance(selectedItem)
+                        R.id.list_container, InfoFragment.newViewInstance(selectedItem)
                     ).addToBackStack(null)
                 } else if (isCreateMode) {
                     replace(
-                        R.id.list_container,
-                        InfoFragment.newCreateInstance(createType)
+                        R.id.list_container, InfoFragment.newCreateInstance(createType)
                     ).addToBackStack(null)
                 } else {
                     if (supportFragmentManager.findFragmentById(R.id.list_container) !is LibraryFragment) {
@@ -153,20 +149,7 @@ class MainActivity : AppCompatActivity(), InfoFragment.OnItemCreatedListener,
         if (name.isBlank() || info.isBlank()) return
 
         val viewModel: MainViewModel by viewModels()
-        val newId = viewModel.items.value.let { items ->
-            items.filter { it !is Item.Header }.maxOfOrNull {
-                (it as? Item.Book)?.id ?: (it as? Item.Newspaper)?.id ?: (it as? Item.Disk)?.id ?: 0
-            }?.plus(1) ?: 1
-        }
-
-        val newItem = when (type) {
-            BOOK -> Item.Book(name, newId ?: 1, info)
-            NEWSPAPER -> Item.Newspaper(name, newId ?: 1, info)
-            DISK -> Item.Disk(name, newId ?: 1, info)
-            else -> return
-        }
-
-        viewModel.addItem(newItem)
+        viewModel.createNewItem(type, name, info)
 
         isDetailsShown = false
         isCreateMode = false

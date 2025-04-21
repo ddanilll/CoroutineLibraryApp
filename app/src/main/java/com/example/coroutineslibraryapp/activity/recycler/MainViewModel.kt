@@ -1,37 +1,41 @@
 package com.example.coroutineslibraryapp.activity.recycler
 
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.coroutineslibraryapp.activity.recycler.LibraryFragment.Companion.BOOK
+import com.example.coroutineslibraryapp.activity.recycler.LibraryFragment.Companion.DISK
+import com.example.coroutineslibraryapp.activity.recycler.LibraryFragment.Companion.NEWSPAPER
+import com.example.coroutineslibraryapp.activity.recycler.adapters.State
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 
 class MainViewModel : ViewModel() {
 
-    private val _scrollToPosition = MutableLiveData<Int?>()
-    val scrollToPosition: LiveData<Int?> = _scrollToPosition
+    private val _scrollToPosition = MutableSharedFlow<Int?>(replay = 1)
+    val scrollToPosition: SharedFlow<Int?> = _scrollToPosition.asSharedFlow()
 
-    fun resetScrollPosition() {
-        _scrollToPosition.value = null
+    fun setScrollPosition(position: Int?) {
+        viewModelScope.launch {
+            _scrollToPosition.emit(position)
+        }
     }
 
-    private val _items = MutableStateFlow<List<Item>>(emptyList())
-    val items: StateFlow<List<Item>> = _items.asStateFlow()
+    fun resetScrollPosition() {
+        viewModelScope.launch {
+            _scrollToPosition.emit(null)
+        }
+    }
 
-    private val _isLoading = MutableStateFlow(false)
-    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
-
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
-    private val errorRate = 3
-    private var requestCount = 0
+    private val _state = MutableStateFlow<State>(State.Loading)
+    val state: StateFlow<State> = _state.asStateFlow()
 
     init {
         loadInitialData()
@@ -39,78 +43,101 @@ class MainViewModel : ViewModel() {
 
     fun loadInitialData() {
         viewModelScope.launch {
+            _state.value = State.Loading
             try {
-                _isLoading.value = true
-                delay((100..2000).random().toLong())
-
-                requestCount++
-                if (requestCount % errorRate == 0) throw Exception("Ошибка загрузки")
-
                 val data = withContext(Dispatchers.Default) {
                     getInitialItems()
                 }
-                _items.value = data
+                _state.value = State.Content(data)
             } catch (e: Exception) {
-                _error.value = e.message ?: "Unknown error"
-            } finally {
-                _isLoading.value = false
+                when (e) {
+                    is CancellationException -> {}
+                    else -> {
+                        _state.value = State.Error(e.message ?: "Unknown error")
+                    }
+                }
+            }
+        }
+    }
+
+    fun createNewItem(type: String, name: String, info: String) {
+        viewModelScope.launch {
+            val currentState = _state.value
+            if (currentState is State.Content) {
+                val newId = currentState.items.filter { it !is Item.Header }.maxOfOrNull {
+                        (it as? Item.Book)?.id ?: (it as? Item.Newspaper)?.id
+                        ?: (it as? Item.Disk)?.id ?: 0
+                    }?.plus(1) ?: 1
+
+                val newItem = when (type) {
+                    BOOK -> Item.Book(name, newId, info)
+                    NEWSPAPER -> Item.Newspaper(name, newId, info)
+                    DISK -> Item.Disk(name, newId, info)
+                    else -> return@launch
+                }
+
+                addItem(newItem)
             }
         }
     }
 
     fun addItem(newItem: Item) {
-        viewModelScope.launch(Dispatchers.Default) {
-            try {
-                delay((100..2000).random().toLong())
-            } catch (e: Exception) {
-                _error.value = "Ошибка добавления: ${e.message}"
+        viewModelScope.launch {
+            val currentState = _state.value
+            if (currentState is State.Content) {
+                val currentList = currentState.items.toMutableList()
+
+                val sectionHeader = when (newItem) {
+                    is Item.Book -> "Books"
+                    is Item.Newspaper -> "Newspapers"
+                    is Item.Disk -> "Disks"
+                    else -> return@launch
+                }
+
+                val sectionHeaderIndex = currentList.indexOfFirst {
+                    it is Item.Header && it.title == sectionHeader
+                }
+
+                if (sectionHeaderIndex != -1) {
+                    val sectionEndIndex =
+                        currentList.subList(sectionHeaderIndex + 1, currentList.size)
+                            .indexOfFirst { it is Item.Header } + sectionHeaderIndex + 1
+
+                    val insertPosition = if (sectionEndIndex > sectionHeaderIndex) {
+                        sectionEndIndex
+                    } else {
+                        sectionHeaderIndex + 1
+                    }
+                    currentList.add(insertPosition, newItem)
+                } else {
+                    currentList.add(newItem)
+                }
+
+                _state.value = State.Content(currentList)
+
+                val newPosition = currentList.indexOfFirst { it == newItem }
+                if (newPosition != -1) setScrollPosition(newPosition)
             }
         }
-        val currentList = _items.value.toMutableList()
-        val sectionHeader = when (newItem) {
-            is Item.Book -> "Books"
-            is Item.Newspaper -> "Newspapers"
-            is Item.Disk -> "Disks"
-            else -> return
-        }
-
-        val sectionHeaderIndex = currentList.indexOfFirst {
-            it is Item.Header && it.title == sectionHeader
-        }
-
-        if (sectionHeaderIndex != -1) {
-            val sectionEndIndex = currentList.subList(sectionHeaderIndex + 1, currentList.size)
-                .indexOfFirst { it is Item.Header } + sectionHeaderIndex + 1
-
-            val insertPosition = if (sectionEndIndex > sectionHeaderIndex) {
-                sectionEndIndex
-            } else {
-                sectionHeaderIndex + 1
-            }
-            currentList.add(insertPosition, newItem)
-        } else {
-            currentList.add(newItem)
-        }
-
-        _items.value = currentList
-
-        val newPosition = currentList.indexOfFirst { it == newItem }
-        if (newPosition != -1) _scrollToPosition.postValue(newPosition)
     }
 
     fun removeItem(position: Int) {
-        viewModelScope.launch(Dispatchers.Default) {
-            try {
-                val currentList = _items.value.toMutableList()
-                currentList.removeAt(position)
-                _items.value = currentList
-            } catch (e: Exception) {
-                _error.value = "Ошибка удаления: ${e.message}"
+        viewModelScope.launch {
+            val currentState = _state.value
+            if (currentState is State.Content) {
+                val currentList = currentState.items.toMutableList()
+                if (position in 0 until currentList.size) {
+                    currentList.removeAt(position)
+                    _state.value = State.Content(currentList)
+                }
             }
         }
     }
 
     private fun getInitialItems(): List<Item> {
+        Thread.sleep((100..2000).random().toLong())
+        val requestCount = (0..20).random()
+        if (requestCount % errorRate == 0) throw Exception("Ошибка загрузки")
         return mutableListOf(
             Item.Header("Books"),
             Item.Book("Маугли", 1, "Автор: Редьярд Киплинг, 250 страниц"),
@@ -127,6 +154,10 @@ class MainViewModel : ViewModel() {
             Item.Disk("Форсаж", 8, "Тип диска: CD"),
             Item.Disk("Марвел", 9, "Тип диска: CD")
         )
+    }
+
+    companion object {
+        const val errorRate = 3
     }
 }
 
