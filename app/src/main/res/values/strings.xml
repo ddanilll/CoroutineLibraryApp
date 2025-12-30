@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">CoroutinesLibraryApp</string>
+    <string name="item_id_format">ID: %d</string>
+    <string name="choose_item_type">Выберите тип элемента</string>
+    <string name="type_book">BOOK</string>
+    <string name="type_newspaper">NEWSPAPER</string>
+    <string name="type_disk">DISK</string>
 </resources>
